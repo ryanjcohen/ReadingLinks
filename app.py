@@ -40,6 +40,19 @@ def add_link(client_id, channel, message_words):
 		add_message = "{} has been added to your reading list.".format(message_words[1])
 		slack_web_client.api_call("chat.postMessage", json={'channel':channel, 'text':add_message})
 
+def view_links(client_id, channel, message_words):
+	result = users.find_one({"_id":client_id})
+	if users.count_documents({"_id":client_id}) == 0:
+		add_message = "Your reading list is empty."
+		slack_web_client.api_call("chat.postMessage", json={'channel':channel, 'text':add_message})
+	else:
+		reading_list = ""
+		link_num = 1
+		for link in result["list"]:
+			reading_list = reading_list + ":link: *{}:* ".format(link_num) + link + "\n"
+			link_num += 1
+		slack_web_client.api_call("chat.postMessage", json={'channel':channel, 'text': reading_list})
+
 @slack_events_adapter.on("message")
 def handle_message(event_data):
     message = event_data["event"]
@@ -50,6 +63,8 @@ def handle_message(event_data):
     	client_id = message["user"] + message["team"]
     	if message_words[0].lower() == "add":
     		add_link(client_id, channel, message_words)
+    	elif message_words[0].lower() == "view":
+    		view_links(client_id, channel, message_words)
     	elif message.get("subtype") is None:
 	        slack_web_client.api_call("chat.postMessage", json={'channel':channel, 'text':instructions})
 
