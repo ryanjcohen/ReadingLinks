@@ -27,31 +27,61 @@ def add_link(client_id, channel, message_words):
 	result = users.find_one({"_id":client_id})
 	if len(message_words) < 2:
 		error_message = "An *add* command must be followed by another argument."
-		slack_web_client.api_call("chat.postMessage", json={'channel':channel, 'text':error_message})
+		post_message(channel,error_message)
 	elif users.count_documents({"_id":client_id}) == 0:
 		users.insert_one({"_id": client_id, "list":[message_words[1]]})
 		add_message = "{} has been added to your reading list.".format(message_words[1])
-		slack_web_client.api_call("chat.postMessage", json={'channel':channel, 'text':add_message})
+		post_message(channel,add_message)
 	elif message_words[1] in result["list"]:
 		old_link_message = "{} is already in your reading list.".format(message_words[1])
-		slack_web_client.api_call("chat.postMessage", json={'channel':channel, 'text':old_link_message})
+		post_message(channel,old_link_message)
 	else:
 		users.update_one({"_id":client_id}, {"$push":{"list":message_words[1]}})
 		add_message = "{} has been added to your reading list.".format(message_words[1])
-		slack_web_client.api_call("chat.postMessage", json={'channel':channel, 'text':add_message})
+		post_message(channel,add_message)
 
 def view_links(client_id, channel, message_words):
 	result = users.find_one({"_id":client_id})
 	if users.count_documents({"_id":client_id}) == 0:
-		add_message = "Your reading list is empty."
-		slack_web_client.api_call("chat.postMessage", json={'channel':channel, 'text':add_message})
+		empty_message = "Your reading list is empty."
+		post_message(channel,empty_message)
 	else:
 		reading_list = ""
 		link_num = 1
 		for link in result["list"]:
 			reading_list = reading_list + ":link: *{}:* ".format(link_num) + link + "\n"
 			link_num += 1
-		slack_web_client.api_call("chat.postMessage", json={'channel':channel, 'text': reading_list})
+		post_message(channel,reading_list)
+
+def convertable_to_int(string):
+	try: 
+		int(string)
+		return True
+	except ValueError:
+		return False
+
+def remove_link(client_id, channel, message_words):
+	result = users.find_one({"_id":client_id})
+	if users.count_documents({"_id":client_id}) == 0:
+		empty_message = "You cannot remove a link from an empty reading list!"
+		post_message(channel, empty_message)
+	elif len(message_words)==1 or not convertable_to_int(message_words[1]):
+		non_int_message = "You must follow the *remove* command by a number."
+		post_message(channel, non_int_message)
+	else:
+		link_idx = int(message_words[1]) - 1
+		if link_idx > len(result["list"]) - 1:
+			invalid_index = "You don't have a link in your reading list that is numbered {}!".format(link_idx+1)
+			post_message(channel, invalid_index)
+		else:
+			link = result["list"][link_idx]
+			users.update({"_id":client_id}, {"$unset":{"list.{}".format(link_idx): 1}})
+			users.update({"_id":client_id}, {"$pull":{"list": None}})
+			removed_link = "{} has been removed from your reading list.".format(link)
+			post_message(channel, removed_link)
+
+def post_message(channel, message):
+	slack_web_client.api_call("chat.postMessage", json={'channel':channel, 'text': message})
 
 @slack_events_adapter.on("message")
 def handle_message(event_data):
@@ -65,8 +95,10 @@ def handle_message(event_data):
     		add_link(client_id, channel, message_words)
     	elif message_words[0].lower() == "view":
     		view_links(client_id, channel, message_words)
+    	elif message_words[0].lower() == "remove":
+    		remove_link(client_id, channel, message_words)
     	elif message.get("subtype") is None:
-	        slack_web_client.api_call("chat.postMessage", json={'channel':channel, 'text':instructions})
+	        post_message(channel,instructions)
 
 @slack_events_adapter.on("error")
 def error_handler(err):
