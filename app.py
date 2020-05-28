@@ -20,8 +20,9 @@ users = db["Users"]
 instructions = '''Instructions for using ReadingLinks: \n
 :one: type *add* followed by one link to add to your reading list \n
 :two: type *view* to view your reading list \n
-:three: type *remove* followed by an index in the reading list to remove a link \n
-:four: tag ReadingLinks and teammates with a link to add to their reading lists'''
+:three: type *remove* followed by the number of a link in the reading list to remove it \n
+:four: type *clear* to remove all links from your reading list \n
+:five: tag ReadingLinks and teammates with a link to add to their reading lists'''
 
 def add_link(client_id, channel, message_words):
 	result = users.find_one({"_id":client_id})
@@ -37,7 +38,7 @@ def add_link(client_id, channel, message_words):
 		post_message(channel,old_link_message)
 	else:
 		users.update_one({"_id":client_id}, {"$push":{"list":message_words[1]}})
-		add_message = "{} has been added to your reading list.".format(message_words[1])
+		add_message = ":white_check_mark: {} has been added to your reading list.".format(message_words[1])
 		post_message(channel,add_message)
 
 def view_links(client_id, channel, message_words):
@@ -77,8 +78,17 @@ def remove_link(client_id, channel, message_words):
 			link = result["list"][link_idx]
 			users.update({"_id":client_id}, {"$unset":{"list.{}".format(link_idx): 1}})
 			users.update({"_id":client_id}, {"$pull":{"list": None}})
-			removed_link = "{} has been removed from your reading list.".format(link)
+			removed_link = ":white_check_mark: {} has been removed from your reading list.".format(link)
 			post_message(channel, removed_link)
+
+def clear_list(client_id, channel):
+	if users.count_documents({"_id":client_id})==0:
+		empty_message = "Your reading list was already empty!"
+		post_message(channel, cleared_message)
+	else:
+		users.delete_one({"_id": client_id})
+		cleared_message = ":white_check_mark: Your reading list has been cleared."
+		post_message(channel, cleared_message)
 
 def post_message(channel, message):
 	slack_web_client.api_call("chat.postMessage", json={'channel':channel, 'text': message})
@@ -97,6 +107,8 @@ def handle_message(event_data):
     		view_links(client_id, channel, message_words)
     	elif message_words[0].lower() == "remove":
     		remove_link(client_id, channel, message_words)
+    	elif message_words[0].lower() == "clear":
+    		clear_list(client_id, channel)
     	elif message.get("subtype") is None:
 	        post_message(channel,instructions)
 
