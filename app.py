@@ -25,24 +25,32 @@ instructions = '''Instructions for using ReadingLinks: \n
 :four: type *clear* to remove all links from your reading list \n
 :five: tag ReadingLinks and teammates with a link to add to their reading lists'''
 
-def add_link(client_id, channel, message_words):
-	result = users.find_one({"_id":client_id})
-	if len(message_words) < 2:
-		error_message = "An *add* command must be followed by another argument."
+def add_link(client_id, channel, message):
+	links = []
+	data = message['blocks'][0]['elements'][0]['elements']
+	for element in data:
+		if element['type'] == 'link' and element['url'] not in links:
+			links.append(element['url'])
+	if len(links) == 0:
+		error_message = "An *add* command must be followed by one or more links."
 		post_message(channel,error_message)
 	elif users.count_documents({"_id":client_id}) == 0:
-		users.insert_one({"_id": client_id, "list":[message_words[1]]})
-		add_message = "{} has been added to your reading list.".format(message_words[1])
-		post_message(channel,add_message)
-	elif message_words[1] in result["list"]:
-		old_link_message = "{} is already in your reading list.".format(message_words[1])
-		post_message(channel,old_link_message)
+		users.insert_one({"_id": client_id, "list":links})
 	else:
-		users.update_one({"_id":client_id}, {"$push":{"list":message_words[1]}})
-		add_message = ":white_check_mark: {} has been added to your reading list.".format(message_words[1])
-		post_message(channel,add_message)
+		result = users.find_one({"_id":client_id})
+		for link in links:
+			if link not in result["list"]:
+				users.update_one({"_id":client_id}, {"$push":{"list":link}})
+	add_message = ""
+	if len(links)==1:
+		add_message = "The following link is now in your reading list: {}".format(links[0])
+	else:
+		add_message = "The following links are now in your reading list: "
+		for link in links:
+			add_message = add_message + link + " "
+	post_message(channel,add_message)
 
-def view_links(client_id, channel, message_words):
+def view_links(client_id, channel):
 	result = users.find_one({"_id":client_id})
 	if users.count_documents({"_id":client_id}) == 0:
 		empty_message = "Your reading list is empty."
@@ -85,7 +93,7 @@ def remove_link(client_id, channel, message_words):
 def clear_list(client_id, channel):
 	if users.count_documents({"_id":client_id})==0:
 		empty_message = "Your reading list was already empty!"
-		post_message(channel, cleared_message)
+		post_message(channel, empty_message)
 	else:
 		users.delete_one({"_id": client_id})
 		cleared_message = ":white_check_mark: Your reading list has been cleared."
@@ -103,9 +111,9 @@ def handle_message(event_data):
 		channel = message["channel"]
 		client_id = message["user"] + message["team"]
 		if message_words[0].lower() == "add":
-			add_link(client_id, channel, message_words)
+			add_link(client_id, channel, message)
 		elif message_words[0].lower() == "view":
-			view_links(client_id, channel, message_words)
+			view_links(client_id, channel)
 		elif message_words[0].lower() == "remove":
 			remove_link(client_id, channel, message_words)
 		elif message_words[0].lower() == "clear":
@@ -124,7 +132,7 @@ def handle_mention(event_data):
 	for element in data:
 		if element['type']=='user':
 			user_ids.append(element['user_id'])
-		elif element['type']=='link':
+		elif element['type']=='link' and element['url'] not in links:
 			links.append(element['url'])
 	channel = event_data['event']['channel']
 	if len(links)==0:
@@ -141,13 +149,13 @@ def handle_mention(event_data):
 			if name != 'ReadingLinks':
 				names.append(name)
 				client_id = user + team
-				result = users.find_one({"_id":client_id})
-				for idx in range(len(links)):
-					link = links[idx]
-					if idx==0 and users.count_documents({"_id":client_id}) == 0:
-						users.insert_one({"_id": client_id, "list":[link]})
-					elif link not in result['list']:
-						users.update_one({"_id":client_id}, {"$push":{"list":link}})
+				if users.count_documents({"_id":client_id}) == 0:
+					users.insert_one({"_id": client_id, "list":links})
+				else:
+					result = users.find_one({"_id":client_id})
+					for link in links:
+						if link not in result['list']:
+							users.update_one({"_id":client_id}, {"$push":{"list":link}})
 		added_message = ""
 		if len(links)>1 and len(names)>1:
 			added_message = "The above links are now in the reading lists of:"
