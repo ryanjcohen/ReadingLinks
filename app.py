@@ -25,30 +25,31 @@ instructions = '''Instructions for using ReadingLinks: \n
 :four: type *clear* to remove all links from your reading list \n
 :five: tag ReadingLinks and teammates with a link to add to their reading lists'''
 
-def add_link(client_id, channel, message):
+def add_link(client_id, channel, message, emoji_reaction):
 	links = []
 	data = message['blocks'][0]['elements'][0]['elements']
+	message = ""
 	for element in data:
 		if element['type'] == 'link' and element['url'] not in links:
 			links.append(element['url'])
 	if len(links) == 0:
-		error_message = "An *add* command must be followed by one or more links."
-		post_message(channel,error_message)
-	elif users.count_documents({"_id":client_id}) == 0:
-		users.insert_one({"_id": client_id, "list":links})
+		message = "An *add* command must be followed by one or more links."
 	else:
 		result = users.find_one({"_id":client_id})
-		for link in links:
-			if link not in result["list"]:
-				users.update_one({"_id":client_id}, {"$push":{"list":link}})
-	add_message = ""
-	if len(links)==1:
-		add_message = "The following link is now in your reading list: {}".format(links[0])
-	else:
-		add_message = "The following links are now in your reading list: "
-		for link in links:
-			add_message = add_message + link + " "
-	post_message(channel,add_message)
+		if result == None:
+			users.insert_one({"_id":client_id, "list":links})
+		else:
+			for link in links:
+				if link not in result["list"]:
+					users.update_one({"_id":client_id}, {"$push":{"list":link}})
+		if len(links)==1:
+			message = "The following link is now in your reading list: {}".format(links[0])
+		else:
+			message = "The following links are now in your reading list: "
+			for link in links:
+				message = message + link + " "
+	if not emoji_reaction:
+		post_message(channel,message)
 
 def view_links(client_id, channel):
 	result = users.find_one({"_id":client_id})
@@ -111,7 +112,7 @@ def handle_message(event_data):
 		channel = message["channel"]
 		client_id = message["user"] + message["team"]
 		if message_words[0].lower() == "add":
-			add_link(client_id, channel, message)
+			add_link(client_id, channel, message, False)
 		elif message_words[0].lower() == "view":
 			view_links(client_id, channel)
 		elif message_words[0].lower() == "remove":
@@ -162,12 +163,22 @@ def handle_mention(event_data):
 		elif len(links)>1 and len(names)==1:
 			added_message = "The above links are now in the reading list of:"
 		elif len(links)==1 and len(names)>1:
-			added_message = "The above link are now in the reading lists of:"
+			added_message = "The above link is now in the reading lists of:"
 		elif len(links)==1 and len(names)==1:
-			added_message = "The above link are now in the reading list of:"
+			added_message = "The above link is now in the reading list of:"
 		for name in names:
 			added_message = added_message + " @" + name
 		slack_web_client.chat_postMessage(channel=channel,text=added_message,thread_ts=ts)
+
+@slack_events_adapter.on("reaction_added")
+def handle_reaction(data):
+	if data['event']['reaction'] == 'link':
+		ts = data['event']['item']['ts']
+		channel = data['event']['item']['channel']
+		retrieved_messages = slack_web_client.conversations_history(channel=channel, latest=ts, 
+			limit=1, inclusive=True)
+		client_id = data['event']['user'] + data['team_id']
+		add_link(client_id, channel, retrieved_messages['messages'][0],True)	
 
 @slack_events_adapter.on("error")
 def error_handler(err):
