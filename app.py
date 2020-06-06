@@ -25,7 +25,23 @@ instructions = '''Instructions for using ReadingLinks: \n
 :four: type *clear* to remove all links from your reading list \n
 :five: tag ReadingLinks and teammates with a link to add to their reading lists'''
 
-def add_link(client_id, channel, message, emoji_reaction):
+def add_link(client_id, message, channel=None, user=None):
+	'''
+		Adds link(s) contained in an input message payload to the reading list of the user
+		represented by client_id. Direct messages the user based on the suceess of adding
+		the link(s) to the user's reading list.
+
+		Args:
+			client_id: concatentation of a user's user id and the team_id of the slack 
+				team; represents the id of the entry for the user's reading list in 
+				the database.
+			message: the message payload containing data about links to potentially
+				be added to a user's reading list.
+			channel: the id of the slack channel to which the bot should report the
+				success of adding the links to the user's reading list.
+			user: the user id of the user whose reading list the links potentially
+				contained in the message payload should be added to.
+	'''
 	links = []
 	data = message['blocks'][0]['elements'][0]['elements']
 	message = ""
@@ -37,18 +53,24 @@ def add_link(client_id, channel, message, emoji_reaction):
 	else:
 		result = users.find_one({"_id":client_id})
 		if result == None:
+			# A reading list for the user does not exist in the database.
 			users.insert_one({"_id":client_id, "list":links})
 		else:
 			for link in links:
+				# Add links that are not already in the user's reading list.
 				if link not in result["list"]:
 					users.update_one({"_id":client_id}, {"$push":{"list":link}})
 		if len(links)==1:
-			message = "The following link is now in your reading list: {}".format(links[0])
+			message = ":white_check_mark: The following link is now in your reading list: {}".format(links[0])
 		else:
-			message = "The following links are now in your reading list: "
+			message = ":white_check_mark: The following links are now in your reading list: "
 			for link in links:
 				message = message + link + " "
-	if not emoji_reaction:
+		if channel is None:
+			# Identify channel for direct messaging successly added links to the user.
+			new_convo = slack_web_client.conversations_open(users=user)
+			channel = new_convo['channel']['id']
+	if channel is not None:
 		post_message(channel,message)
 
 def view_links(client_id, channel):
@@ -86,8 +108,8 @@ def remove_link(client_id, channel, message_words):
 			post_message(channel, invalid_index)
 		else:
 			link = result["list"][link_idx]
-			users.update({"_id":client_id}, {"$unset":{"list.{}".format(link_idx): 1}})
-			users.update({"_id":client_id}, {"$pull":{"list": None}})
+			users.update_one({"_id":client_id}, {"$unset":{"list.{}".format(link_idx): 1}})
+			users.update_one({"_id":client_id}, {"$pull":{"list": None}})
 			removed_link = ":white_check_mark: {} has been removed from your reading list.".format(link)
 			post_message(channel, removed_link)
 
@@ -112,7 +134,7 @@ def handle_message(event_data):
 		channel = message["channel"]
 		client_id = message["user"] + message["team"]
 		if message_words[0].lower() == "add":
-			add_link(client_id, channel, message, False)
+			add_link(client_id=client_id, channel=channel, message=message)
 		elif message_words[0].lower() == "view":
 			view_links(client_id, channel)
 		elif message_words[0].lower() == "remove":
@@ -121,7 +143,6 @@ def handle_message(event_data):
 			clear_list(client_id, channel)
 		elif message.get("subtype") is None:
 			post_message(channel,instructions)
-	#TODO: handle subtype message_changed?
 
 @slack_events_adapter.on("app_mention")
 def handle_mention(event_data):
@@ -177,8 +198,9 @@ def handle_reaction(data):
 		channel = data['event']['item']['channel']
 		retrieved_messages = slack_web_client.conversations_history(channel=channel, latest=ts, 
 			limit=1, inclusive=True)
-		client_id = data['event']['user'] + data['team_id']
-		add_link(client_id, channel, retrieved_messages['messages'][0],True)	
+		user = data['event']['user']
+		client_id = user + data['team_id']
+		add_link(client_id, retrieved_messages['messages'][0],user=user)	
 
 @slack_events_adapter.on("error")
 def error_handler(err):
