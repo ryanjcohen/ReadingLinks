@@ -1,7 +1,6 @@
 from slack import WebClient
 from slackeventsapi import SlackEventAdapter
 import os
-import logging
 import pymongo
 from urllib.parse import urlparse
 
@@ -134,7 +133,7 @@ def remove_link(client_id, channel, message_words):
 	'''
 	result = users.find_one({"_id":client_id})
 	message = ""
-	if results is None:
+	if result is None:
 		message = "You cannot remove a link from an empty reading list!"
 	elif len(message_words)==1 or not convertable_to_int(message_words[1]):
 		message = "You must follow the *remove* command by a number."
